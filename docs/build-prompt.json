@@ -1,0 +1,59 @@
+{
+  "task": "Replicate the approved Hima UI as a pixel-faithful React Native (Expo, TypeScript) Android app in mobile/.",
+  "read_first": [
+    "CLAUDE.md",
+    "design/README.md",
+    "docs/hima-ui-spec.md",
+    "design/screens/Foundations.html",
+    "design/screens/Components.html"
+  ],
+  "source_of_truth": {
+    "visuals": "design/screens/*.html (inline styles = exact values)",
+    "behavior_and_rules": "docs/hima-ui-spec.md",
+    "on_conflict": "design files win for visuals, spec wins for behavior; ask if money or payment logic is affected"
+  },
+  "replication_rules": [
+    "Copy, do not redesign, restyle, simplify or 'improve' anything.",
+    "Port each HTML element 1:1: flex div -> View with the same flex props; px -> same dp at 360 width; inline styles -> StyleSheet values read from mobile/theme.",
+    "Same copy text, icons (lucide-react-native), corner radii, shadows, spacing and states as the design file.",
+    "If something cannot match exactly in React Native, get as close as possible and list the difference."
+  ],
+  "stack": {
+    "framework": "Expo development build, expo-router, TypeScript",
+    "fonts": "Plus Jakarta Sans + Inter via @expo-google-fonts",
+    "icons": "lucide-react-native",
+    "assets": "copy design/assets/* to mobile/assets/mascot and mobile/assets/illustrations",
+    "structure": "follow docs/hima-ui-spec.md section 9"
+  },
+  "hard_rules": [
+    "All colors, font sizes and spacing come from mobile/theme (colors.ts, typography.ts, spacing.ts), including the extra contrast and tint tokens in design/README.md. No hex values inside screens.",
+    "Build the shared components from Components.html first and reuse them everywhere.",
+    "Money: peso sign, comma thousands, two decimals, tabular figures, true minus sign.",
+    "Never show a payment as successful before it is confirmed. No mascot on pending or failed payments.",
+    "Status is always icon + label + color.",
+    "AI never changes the plan without explicit approval; numbers in AI answers come from backend calculations.",
+    "Safe-to-Spend = wallet balance - remaining planned expenses this period - protected reserves. Deterministic, outside the UI, unit-tested.",
+    "Sample data in the designs is placeholder only: wire screens to stores/services with mock data, not hardcoded values.",
+    "Touch targets >= 44x44, safe areas, keyboard avoidance, screen-reader labels, reduced motion."
+  ],
+  "batches": [
+    { "id": 1, "name": "Scaffold", "do": "Expo app in mobile/, theme tokens from Foundations.html, fonts, assets, expo-router skeleton with (auth), (onboarding), (tabs), payment, assistant." },
+    { "id": 2, "name": "Components", "screens": ["Components.html"], "do": "Every component on the board, all variants and states." },
+    { "id": 3, "name": "Onboarding", "screens": ["01-Splash", "02-Login", "02b-Login-Error", "03-Allowance", "04-Schedule-Setup", "05-Expenses", "06-Budget", "06b-Budget-Over"] },
+    { "id": 4, "name": "Tabs", "screens": ["07-Home", "08-Schedule", "09-Insights", "15-Profile"] },
+    { "id": 5, "name": "Payment", "screens": ["11a-NFC-Ready", "11b-NFC-Scanning", "11c-NFC-Recognized", "11d-NFC-Unknown", "11e-NFC-Unsupported", "11f-NFC-Disabled", "11g-NFC-Timeout", "12a-Checkout", "12b-Checkout-Over", "12c-Checkout-Blocked", "13a-Processing-Auth", "13b-Processing-Submit", "13c-Processing-Confirm", "14a-Result-Success", "14b-Result-Pending", "14c-Result-Failed"] },
+    { "id": 6, "name": "Hima AI", "screens": ["10-Hima-AI", "10b-AI-Offline"] }
+  ],
+  "per_screen_check": [
+    "Run on a 360-wide Android emulator and screenshot the screen.",
+    "Open the matching design/screens/<name>.html in a browser at 360 px wide.",
+    "Compare layout, spacing, sizes, colors, text and icons; fix differences before moving on.",
+    "If no emulator is available, say so and compare the code against the HTML values instead."
+  ],
+  "workflow": [
+    "Do one batch at a time, in order.",
+    "Before each batch, list the files you will create; after it, run type-check and lint, and report what was built, what differs from the design, and anything you need from me.",
+    "Stop after each batch and wait for my go-ahead."
+  ],
+  "start_with": "Batch 1"
+}

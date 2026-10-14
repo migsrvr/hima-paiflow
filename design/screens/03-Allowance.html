@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Hima · 03 Allowance setup</title>
+<meta name="viewport" content="width=360">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>body{margin:0;background:#E9EEF2;display:flex;justify-content:center;padding:24px 0}a{color:#1678B5}</style></head>
+<body><div style="width:360px;height:800px;overflow:hidden;box-shadow:0 2px 12px rgba(25,53,74,.12)">
+<div style="width: 360px; height: 800px; box-sizing: border-box; display: flex; flex-direction: column; background: #F5FAFE; color: #19354A; font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif; overflow: hidden">
+
+<header style="display: flex; align-items: center; gap: 8px; padding: 24px 20px 0 8px">
+<a href="02-Login.html" aria-label="Back" style="width: 44px; height: 44px; flex: none; border-radius: 12px; color: #19354A; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg></a>
+<div style="flex: 1">
+<p style="margin: 0; font-family: Inter, system-ui, sans-serif; font-size: 12px; font-weight: 600; color: #5D7484">Step 1 of 4 · Allowance</p>
+<div role="progressbar" aria-label="Setup progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="1" style="display: flex; gap: 4px; margin-top: 6px"><span style="flex: 1; height: 4px; border-radius: 999px; background: #1678B5"></span><span style="flex: 1; height: 4px; border-radius: 999px; background: #DFE9F0"></span><span style="flex: 1; height: 4px; border-radius: 999px; background: #DFE9F0"></span><span style="flex: 1; height: 4px; border-radius: 999px; background: #DFE9F0"></span></div>
+</div>
+</header>
+
+<main style="flex: 1; display: flex; flex-direction: column; padding: 24px 20px 0">
+<h1 style="margin: 0; font-size: 26px; font-weight: 800; line-height: 1.25">How much is your allowance?</h1>
+<p style="margin: 8px 0 0; font-family: Inter, system-ui, sans-serif; font-size: 15px; line-height: 1.5; color: #5D7484">Enter what you actually receive. You can change it anytime.</p>
+
+<div style="display: flex; margin-top: 20px; padding: 4px; border-radius: 14px; background: #EDF2F6">
+<button type="button" aria-pressed="false" style="flex: 1; height: 44px; border: 0; border-radius: 11px; background: transparent; color: #5D7484; font-family: 'Plus Jakarta Sans', Inter, sans-serif; font-size: 15px; font-weight: 600">Daily</button>
+<button type="button" aria-pressed="true" style="flex: 1; height: 44px; border: 0; border-radius: 11px; background: #FFFFFF; color: #19354A; font-family: 'Plus Jakarta Sans', Inter, sans-serif; font-size: 15px; font-weight: 700; box-shadow: 0 1px 3px rgba(25, 53, 74, 0.12)">Weekly</button>
+</div>
+<p style="margin: 10px 0 0; font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 1.5; color: #5D7484"><strong style="color: #19354A; font-weight: 600">Weekly</strong> means one amount that covers Monday to Sunday. <strong style="color: #19354A; font-weight: 600">Daily</strong> means the same amount every day.</p>
+
+<label for="allowance" style="margin-top: 20px; font-size: 14px; font-weight: 600">Weekly allowance</label>
+<div style="margin-top: 6px; height: 76px; box-sizing: border-box; padding: 0 20px; border: 1.5px solid #39A9E8; border-radius: 20px; background: #FFFFFF; display: flex; align-items: center; gap: 8px; box-shadow: 0 0 0 4px rgba(57, 169, 232, 0.18)">
+<span style="font-size: 30px; font-weight: 700; color: #5D7484">₱</span>
+<input id="allowance" inputmode="decimal" value="3,000.00" aria-describedby="allowance-help" style="flex: 1; min-width: 0; height: 60px; border: 0; padding: 0; background: transparent; color: #19354A; font-family: 'Plus Jakarta Sans', Inter, sans-serif; font-size: 36px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; outline: none">
+</div>
+<p id="allowance-help" style="margin: 6px 0 0; font-family: Inter, system-ui, sans-serif; font-size: 12px; color: #5D7484">Philippine peso. Numbers only, no negative amounts.</p>
+
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding: 4px 4px 4px 16px; border-radius: 16px; background: #FFFFFF; border: 1px solid #DFE9F0">
+<span style="font-family: Inter, system-ui, sans-serif; font-size: 14px; color: #5D7484">Your week starts on</span>
+<button type="button" aria-haspopup="listbox" style="height: 44px; padding: 0 12px; border: 0; border-radius: 12px; background: #EAF5FC; color: #10659A; display: flex; align-items: center; gap: 6px; font-family: 'Plus Jakarta Sans', Inter, sans-serif; font-size: 14px; font-weight: 700">Monday<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+</div>
+
+<div style="display: flex; align-items: flex-end; gap: 4px; margin-top: 18px">
+<img src="../assets/mascot-point.png" alt="" style="height: 84px; width: auto; flex: none">
+<p style="margin: 0 0 10px; padding: 12px 14px; border-radius: 16px 16px 16px 4px; background: #EAF5FC; font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 1.5; color: #19354A">Count only money you get regularly. Gifts can go straight to savings later.</p>
+</div>
+</main>
+
+<div style="padding: 16px 20px 28px">
+<a href="04-Schedule-Setup.html" style="height: 52px; border-radius: 16px; background: #1678B5; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; text-decoration: none">Continue</a>
+</div>
+</div>
+</div></body></html>
