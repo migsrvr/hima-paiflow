@@ -178,3 +178,18 @@ test('deployment metadata is public and never includes tokens or secrets', async
   const raw = JSON.stringify(body);
   for (const secret of [...Object.values(TOKENS), 'whsec-test']) assert.equal(raw.includes(secret), false);
 });
+
+test('public readiness follows storage health while liveness retains its contract', async () => {
+  const s = services(unusedAi);
+  const app = createApp({ ...s, log: () => {} });
+  const ready = await request(app, '/ready');
+  assert.equal(ready.status, 200);
+  assert.deepEqual(await ready.json(), { status: 'ready' });
+  s.attempts.ready = async () => { throw new Error('private database connection details'); };
+  const down = await request(app, '/ready');
+  assert.equal(down.status, 503);
+  assert.deepEqual(await down.json(), { status: 'not_ready' });
+  const health = await request(app, '/health');
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { status: 'ok', ai: false, payments: true });
+});

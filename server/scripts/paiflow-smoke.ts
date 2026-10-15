@@ -3,7 +3,6 @@
 // Prints the outcome, the explorer link and the flow's events.
 import { compose } from '../src/compose.js';
 import { loadConfig } from '../src/config.js';
-import { MemoryAttemptStore } from '../src/services/attemptStore.js';
 import { attemptView } from '../src/services/attemptView.js';
 import { isFinal } from '../src/services/depositExecutor.js';
 
@@ -12,7 +11,8 @@ const SMOKE_USER = 'smoke-test@hima.local';
 
 async function main() {
   const config = loadConfig();
-  const services = compose(config, { attempts: new MemoryAttemptStore(), log: (message: string) => console.log(`  [service] ${message}`) });
+  const services = compose(config, { log: (message: string) => console.log(`  [service] ${message}`) });
+  try {
   const status = await services.registry.status('checkout', { fresh: true });
   if (!status.ready) {
     console.error(`The checkout deployment isn't ready: ${status.problems.join(' ')}`);
@@ -28,7 +28,7 @@ async function main() {
   });
   console.log(`  submitted ${view.assetAmount} ${view.assetCode}, tx ${view.txHash}`);
 
-  let attempt = services.attempts.get(view.id);
+  let attempt = await services.attempts.get(view.id);
   const deadline = Date.now() + 90_000;
   while (attempt && !isFinal(attempt) && Date.now() < deadline) {
     await wait(2500);
@@ -53,6 +53,9 @@ async function main() {
     console.log('  no flow events recorded yet; check the explorer link.');
   } else {
     process.exitCode = final.status === 'pending' ? 2 : 1;
+  }
+  } finally {
+    await services.attempts.close();
   }
 }
 

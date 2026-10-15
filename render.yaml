@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: hima-demo-api
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run db:migrate && npm start
+    healthCheckPath: /ready
+    autoDeployTrigger: 'off'
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: STORAGE_BACKEND
+        value: postgres
+      - key: DATABASE_URL
+        # Neon direct PostgreSQL URL (Connection pooling OFF); never commit its value.
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: STELLAR_STUDENT_SECRET
+        sync: false
+      - key: STELLAR_SPONSOR_SECRET
+        sync: false
+      - key: STELLAR_MERCHANT_PUBLIC_KEY
+        sync: false
+      - key: STELLAR_SAVINGS_PUBLIC_KEY
+        sync: false
+      - key: STELLAR_EMERGENCY_PUBLIC_KEY
+        sync: false
+      - key: PAIFLOW_BASE_URL
+        value: https://beta.app.paiflow.xyz
+      - key: PAIFLOW_CHECKOUT_ID
+        sync: false
+      - key: PAIFLOW_CHECKOUT_TOKEN
+        sync: false
+      - key: PAIFLOW_CHECKOUT_TRIGGER_CONTRACT
+        sync: false
+      - key: PAIFLOW_CHECKOUT_RECIPIENTS
+        sync: false
+      - key: PAIFLOW_ALLOWANCE_ID
+        sync: false
+      - key: PAIFLOW_ALLOWANCE_TOKEN
+        sync: false
+      - key: PAIFLOW_ALLOWANCE_TRIGGER_CONTRACT
+        sync: false
+      - key: PAIFLOW_ALLOWANCE_RECIPIENTS
+        sync: false
+      - key: PAIFLOW_REWARD_ID
+        sync: false
+      - key: PAIFLOW_REWARD_TOKEN
+        sync: false
+      - key: PAIFLOW_REWARD_WEBHOOK_SECRET
+        sync: false
+      - key: PAIFLOW_REWARD_RECIPIENT
+        sync: false

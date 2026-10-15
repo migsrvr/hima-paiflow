@@ -1,6 +1,6 @@
 # Hima backend
 
-Standalone Express + TypeScript service. Requires Node.js 22.12 or later (`@stellar/stellar-sdk` 17).
+Standalone Express + TypeScript service. Requires Node.js 22.x (at least 22.12) (`@stellar/stellar-sdk` 17).
 
 ```sh
 cd server
@@ -17,11 +17,12 @@ The default address is `http://127.0.0.1:3001`. Set `HOST=0.0.0.0` to allow a ph
 
 ## Endpoints
 
-Everything except `/health` is under `/api`. Routes marked **session** need `Authorization: Bearer <token>` from `POST /api/auth/session`. Another user's records answer 404.
+Everything except `/health` and `/ready` is under `/api`. Routes marked **session** need `Authorization: Bearer <token>` from `POST /api/auth/session`. Another user's records answer 404.
 
 | Method | Path | Auth | Behavior |
 | --- | --- | --- | --- |
 | GET | `/health` | | `{ "status": "ok", "ai": true, "payments": true }`. These are configuration checks, not provider availability. |
+| GET | `/ready` | | `{ "status": "ready" }` with 200 when storage and schema are reachable; `{ "status": "not_ready" }` with 503 otherwise. No provider or connection details. |
 | POST | `/api/auth/session` | | `{ "email" }` → `{ token, expiresAt, userId }`. This is the demo's mock sign-in. Tokens are HMAC-signed with `SESSION_SECRET` and last 7 days. |
 | GET | `/api/paiflow/flows` | | Readiness of the three deployments: trigger, input asset, problems, and the recipients Hima expects. Never tokens or secrets. |
 | GET | `/api/merchants/resolve-tag/:uid` | | Resolves the registered Campus Canteen demo tags. |
@@ -31,6 +32,38 @@ Everything except `/health` is under `/api`. Routes marked **session** need `Aut
 | POST | `/api/checkout/quote` | session | `{ "paymentId", "merchantId", "amount" (PHP), "reference" }` → prices the payment and its 90/10 split (PHP and XLM) and checks the paying wallet's balance. It returns `quoteId`, `split`, `autoSaved` and `quoteExpiresAt`. Nothing is prepared or signed. Unpaid quotes lapse to `cancelled` after 5 minutes. |
 | POST | `/api/checkout/payments` | session | `{ "quoteId" }` pays that quote. A full quote body quotes and pays in one step. Idempotent per user on `paymentId`: a repeat never pays twice. |
 | GET | `/api/payments/:id` | session | Any of the user's attempts, by Hima id or the app's payment id. Returns `status` (pending / confirmed / failed / cancelled), the full lifecycle `state`, `txHash`, `ledger`, the exact `assetAmount` and `explorerUrl`. |
+
+## Persistent storage and hosting
+
+Local development defaults to `STORAGE_BACKEND=file`, using `DATA_DIR/attempts.json` (default `server/data`). This is a single-process local store. A failed file write rejects the operation before submission; no in-memory-only payment is submitted.
+
+Hosted deployments use `STORAGE_BACKEND=postgres`, `DATABASE_URL`, and a stable `SESSION_SECRET` of at least 32 characters. On Render (`RENDER=true`), missing postgres selection or a missing session secret prevents startup. Postgres selection always requires both `DATABASE_URL` and the stable session secret, even outside Render. There is no file fallback on a database outage.
+
+Use Neon **Connect → Connection pooling OFF** and copy its direct PostgreSQL URL into `DATABASE_URL`. The hostname must not contain the `-pooler` suffix. Percent-encode reserved characters if entering the password manually. Payment locks belong to a database session, so Neon transaction-pooled hosts are rejected even on port 5432. Other direct PostgreSQL connections and genuine session poolers remain supported. The pg pool holds at most five connections, verifies TLS certificates and enables supported SCRAM channel binding; connection-string SSL flags cannot disable certificate verification. `DATABASE_SSL_CA` optionally supplies a trusted PEM CA without weakening verification. See [Neon connection details](https://neon.com/docs/connect/connect-from-any-app) and [pooling limitations](https://neon.com/docs/connect/connection-pooling).
+
+Database credentials, Stellar seeds, AI keys and Paiflow tokens stay in server environment variables. Never put them in `EXPO_PUBLIC_*`, mobile source, logs or the APK. Neon API keys and client SDKs are not needed. The tables enable RLS without client policies and revoke access from `PUBLIC` and any existing `anon`/`authenticated` roles; the backend connects using the table owner/server database role. This preserves the existing demo email sign-in; it is not production identity verification.
+
+Build and migrate before serving a new release:
+
+```sh
+npm ci --include=dev
+npm run build
+# Set STORAGE_BACKEND=postgres, DATABASE_URL and SESSION_SECRET in the server environment.
+npm run db:migrate
+npm start
+```
+
+`db:migrate` is a dedicated, transactional, repeatable schema command. Concurrent invocations serialize with a migration lock. App startup checks schema readiness and stops on failure; it never invents a replacement local database. The schema stores the id, owner, flow, idempotency key, timestamps and complete JSONB attempt payload, with uniqueness on both id and `(user_id, flow, idempotency_key)`. Signed envelopes and attempt identities cannot be replaced through the store API. Storage errors produce a safe 503; `/health` remains a liveness/configuration probe and `/ready` checks the database/schema.
+
+To move existing attempts, first stop writers and copy `server/data/attempts.json` to a safe backup. Keep the same wallet seeds, session secret and Paiflow deployment configuration. After building and migrating, run:
+
+```sh
+npm run db:import -- /absolute/path/to/backed-up-attempts.json
+```
+
+The command only reads the source file. It validates the entire array, preserves extra fields, ids, owners, timestamps, keys and signed envelopes, and imports in one transaction. Reimporting identical records skips them. Any differing existing id/key collision rejects the whole batch and leaves the database unchanged; it never overwrites a newer hosted record. A malformed record or duplicate identity in the source also rejects the batch. Output contains counts only, never attempt payloads. Run the import before resuming writers so pending attempts do not change during comparison.
+
+Tests use no live payment providers. `npm test` explicitly skips the PostgreSQL integration case unless `HIMA_TEST_DATABASE_URL` names a dedicated **localhost** database ending in `_test`. That optional test creates the schema and fixture records, tests actual persistence and cross-session advisory locking, then removes only its own fixture user's records. It never runs against Neon or another remote database. The production TLS pool is tested separately; the explicit local fixture accepts a local PostgreSQL server without TLS.
 
 ## Payments (Paiflow on Stellar testnet)
 
@@ -53,7 +86,7 @@ How a deposit flow runs (`src/services/depositExecutor.ts`, shared by checkout a
 
 - **Amount.** PHP converts to stroops with integer math at `PHP_PER_INPUT_UNIT` (₱85 = 11.3333333 XLM).
 - **Prepare and verify.** Paiflow prepares the deposit. Before signing, Hima checks it is a single `deposit` call on the flow's trigger contract, for exactly that amount, from the expected signer (student for checkout, sponsor for allowance), on testnet, with a bounded fee and expiry.
-- **Save, then submit.** The signed envelope is saved to `data/attempts.json` *before* submission, so retries and restarts reuse that envelope and Paiflow never sends it twice.
+- **Save, then submit.** The signed envelope commits to the selected store *before* submission. Retries and restarts reuse the exact transaction hash and signed envelope. The network can receive that envelope again during recovery; it cannot execute that same transaction twice. Independent hosted processes serialize prepare, signing, submission and reconciliation with a database advisory lock for the attempt.
 - **Status.** `SUCCESS` → `confirmed`. `FAILED` / `REJECTED` → `failed` (not charged). `PENDING` / `UNKNOWN` / no answer → `pending`, resubmitted with the same envelope. After the window closes, Horizon decides.
 - **Secrets.** Wallet secrets, tokens and the webhook secret live only in `.env`. Logs carry codes, never secrets or bodies.
 
@@ -107,3 +140,9 @@ Errors use `{ "error": { "code": "...", "message": "..." } }`. Request errors re
 ## Verification checkpoint — 2026-10-13
 
 Groq verified live on 2026-10-14: a budget question returned a grounded JSON answer through `ChatService`. Tests mock the provider and make no network calls.
+
+## Hosted persistence checkpoint — 2026-10-15
+
+`npm run typecheck`, `npm run build`, and `git diff --check -- server` passed. The final `npm test` run passed 73 tests, with one explicit PostgreSQL integration skip and no failures. Tests ran on the available Node 24.21 runtime; deployment is pinned to Node 22.x (minimum 22.12). The suite covers atomic async claims, concurrent quote/key conflicts, serialized signing/submission, autocommit before external submission, lost database sessions, file restart recovery, interruption after signed persistence, stale-state protection, verified TLS configuration and public readiness.
+
+A local PostgreSQL server was unavailable. Downloading temporary PostgreSQL packages failed because the sandbox could not resolve the Ubuntu package hosts. No live database, remote migration/import, live AI request or payment was executed. Run the optional local database integration test before relying on database integration validation; production migration/TLS connectivity still requires verification against the configured hosted database. The existing `server/.env` and seven local attempt records were preserved, and credential values were removed from `.env.example`.

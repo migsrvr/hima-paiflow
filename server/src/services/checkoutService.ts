@@ -96,12 +96,12 @@ export class CheckoutService {
     const { centavos, student } = this.validate(request);
     const amountStroops = centavosToStroops(centavos, this.options.rateCentavos);
 
-    const existing = this.options.store.findByKey(userId, 'checkout', request.paymentId);
+    const existing = await this.options.store.findByKey(userId, 'checkout', request.paymentId);
     if (existing) {
       if (existing.amountCentavos !== centavos || existing.merchantId !== request.merchantId || existing.reference !== request.reference) {
         throw new ServiceError('PAYMENT_ID_REUSED', 409, 'This payment id was already used for a different payment.');
       }
-      return this.present(this.expireIfLapsed(existing));
+      return this.present(await this.expireIfLapsed(existing));
     }
 
     const flow = await this.options.registry.status('checkout');
@@ -135,8 +135,11 @@ export class CheckoutService {
       createdAt: at.toISOString(),
       updatedAt: at.toISOString(),
     };
-    this.options.store.put(attempt);
-    return this.present(attempt);
+    const claimed = await this.options.store.create(attempt);
+    if (claimed.amountCentavos !== centavos || claimed.merchantId !== request.merchantId || claimed.reference !== request.reference) {
+      throw new ServiceError('PAYMENT_ID_REUSED', 409, 'This payment id was already used for a different payment.');
+    }
+    return this.present(await this.expireIfLapsed(claimed));
   }
 
   /**
@@ -146,17 +149,17 @@ export class CheckoutService {
   async pay(userId: string, input: { quoteId: string } | CheckoutRequest): Promise<CheckoutView> {
     let attempt: PaymentAttempt;
     if ('quoteId' in input) {
-      const found = this.options.store.get(input.quoteId);
+      const found = await this.options.store.get(input.quoteId);
       if (!found || found.userId !== userId || found.flow !== 'checkout') {
         throw new ServiceError('PAYMENT_NOT_FOUND', 404, 'No payment with this id reached the server.');
       }
       attempt = found;
     } else {
       const quoted = await this.quote(userId, input);
-      attempt = this.options.store.get(quoted.id) as PaymentAttempt;
+      attempt = (await this.options.store.get(quoted.id))!;
     }
 
-    attempt = this.expireIfLapsed(attempt);
+    attempt = await this.expireIfLapsed(attempt);
     if (attempt.status === 'cancelled') {
       throw new ServiceError('QUOTE_EXPIRED', 409, attempt.failure?.reason ?? 'This checkout expired. Start again.');
     }
@@ -177,13 +180,16 @@ export class CheckoutService {
 
   /** The client view of a checkout attempt; verifies the Split on Horizon once it is confirmed. */
   async present(attempt: PaymentAttempt): Promise<CheckoutView> {
-    let current = attempt;
-    if (current.status === 'confirmed' && current.txHash && this.needsVerification(current)) {
-      const verification = await this.options.verifier.verify(current.txHash, BigInt(current.amountStroops), this.options.legs);
-      current = { ...current, meta: { ...current.meta, verification }, updatedAt: this.now().toISOString() };
-      this.options.store.put(current);
-    }
-    return this.view(current);
+    return this.options.store.withLock(attempt.id, async () => {
+      let current = await this.options.store.get(attempt.id);
+      if (!current) throw new ServiceError('PAYMENT_NOT_FOUND', 404, 'No payment with this id reached the server.');
+      if (current.status === 'confirmed' && current.txHash && this.needsVerification(current)) {
+        const verification = await this.options.verifier.verify(current.txHash, BigInt(current.amountStroops), this.options.legs);
+        current = { ...current, meta: { ...current.meta, verification }, updatedAt: this.now().toISOString() };
+        await this.options.store.put(current);
+      }
+      return this.view(current);
+    });
   }
 
   private needsVerification(a: PaymentAttempt): boolean {
@@ -241,15 +247,18 @@ export class CheckoutService {
   }
 
   /** A quote nobody authorized in time is cancelled; it never reached Paiflow, so nothing was charged. */
-  private expireIfLapsed(a: PaymentAttempt): PaymentAttempt {
-    const lapses = typeof a.meta?.quoteExpiresAt === 'string' ? Date.parse(a.meta.quoteExpiresAt) : Number.NaN;
-    if (a.status !== 'awaiting_authorization' || !(this.now().getTime() > lapses)) return a;
-    const cancelled: PaymentAttempt = {
-      ...a, status: 'cancelled', failure: { code: 'QUOTE_EXPIRED', reason: 'This checkout expired before it was authorized' },
-      updatedAt: this.now().toISOString(),
-    };
-    this.options.store.put(cancelled);
-    return cancelled;
+  private async expireIfLapsed(attempt: PaymentAttempt): Promise<PaymentAttempt> {
+    return this.options.store.withLock(attempt.id, async () => {
+      const a = (await this.options.store.get(attempt.id))!;
+      const lapses = typeof a.meta?.quoteExpiresAt === 'string' ? Date.parse(a.meta.quoteExpiresAt) : Number.NaN;
+      if (a.status !== 'awaiting_authorization' || !(this.now().getTime() > lapses)) return a;
+      const cancelled: PaymentAttempt = {
+        ...a, status: 'cancelled', failure: { code: 'QUOTE_EXPIRED', reason: 'This checkout expired before it was authorized' },
+        updatedAt: this.now().toISOString(),
+      };
+      await this.options.store.put(cancelled);
+      return cancelled;
+    });
   }
 
   private validate(request: CheckoutRequest) {
@@ -284,10 +293,10 @@ export class CheckoutService {
 }
 
 /** Any flow's attempt, by Hima id or the app's payment id. Someone else's attempt is "not found". */
-export function findOwnedAttempt(store: AttemptStore, userId: string, idOrKey: string): PaymentAttempt {
-  const byId = store.get(idOrKey);
+export async function findOwnedAttempt(store: AttemptStore, userId: string, idOrKey: string): Promise<PaymentAttempt> {
+  const byId = await store.get(idOrKey);
   if (byId && byId.userId === userId) return byId;
-  const byKey = store.findByKey(userId, 'checkout', idOrKey);
+  const byKey = await store.findByKey(userId, 'checkout', idOrKey);
   if (byKey) return byKey;
   throw new ServiceError('PAYMENT_NOT_FOUND', 404, 'No payment with this id reached the server.');
 }

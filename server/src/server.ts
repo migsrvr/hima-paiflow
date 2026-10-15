@@ -2,9 +2,11 @@ import { createApp } from './app.js';
 import { compose } from './compose.js';
 import { loadConfig } from './config.js';
 
-function start() {
+async function start() {
   const config = loadConfig();
   const services = compose(config);
+  try { await services.attempts.ready(); }
+  catch (error) { await services.attempts.close().catch(() => {}); throw error; }
   const server = createApp({ ...services, corsOrigins: config.corsOrigins }).listen(config.port, config.host, () => {
     console.log(`Hima server listening on http://${config.host}:${config.port}`);
     console.log(`AI: ${services.ai.configured ? `Groq, model ${config.model}` : 'off (GROQ_API_KEY is unset; AI requests return 503)'}`);
@@ -25,6 +27,7 @@ function start() {
   server.on('error', (error: NodeJS.ErrnoException) => {
     console.error(`Server failed to listen (${error.code ?? 'unknown error'}).`);
     process.exitCode = 1;
+    void services.attempts.close();
   });
   let shuttingDown = false;
   const shutdown = () => {
@@ -35,13 +38,15 @@ function start() {
       process.exitCode = 1;
     }, config.timeoutMs + 5000);
     force.unref();
-    server.close(() => { clearTimeout(force); });
+    server.close(() => {
+      services.attempts.close().catch(() => { process.exitCode = 1; }).finally(() => { clearTimeout(force); });
+    });
   };
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
 }
 
-try { start(); } catch (error) {
+start().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : 'Unable to start Hima server.');
   process.exitCode = 1;
-}
+});

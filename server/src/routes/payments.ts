@@ -16,7 +16,8 @@ export function paymentRoutes(store: AttemptStore, executor: DepositExecutor, ch
       return;
     }
     Promise.resolve()
-      .then(() => executor.refresh(findOwnedAttempt(store, userIdOf(res), id.data)))
+      .then(() => findOwnedAttempt(store, userIdOf(res), id.data))
+      .then((attempt) => executor.refresh(attempt))
       .then((attempt) => (attempt.flow === 'checkout' ? checkout.present(attempt) : attemptView(attempt)))
       .then((view) => res.json(view))
       .catch(next);

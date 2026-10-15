@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.12.0 <23"
   },
   "description": "Backend API service, Kimi AI and Paiflow testnet payments for Hima",
   "main": "dist/server.js",
@@ -15,19 +15,24 @@
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "stellar:setup": "tsx scripts/stellar-setup.ts",
     "paiflow:check": "tsx scripts/paiflow-check.ts",
-    "paiflow:smoke": "tsx scripts/paiflow-smoke.ts"
+    "paiflow:smoke": "tsx scripts/paiflow-smoke.ts",
+    "allowance:smoke": "tsx scripts/allowance-smoke.ts",
+    "db:migrate": "node dist/db/migrate.js",
+    "db:import": "node dist/db/import.js"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^17.2.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "pg": "^8.23.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.7",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }

@@ -59,7 +59,6 @@ export const isFinal = (a: PaymentAttempt) => FINAL.includes(a.status);
  */
 export class DepositExecutor {
   private readonly lastChecked = new Map<string, number>();
-  private readonly inflight = new Map<string, Promise<PaymentAttempt>>();
 
   constructor(private readonly options: ExecutorOptions) {}
 
@@ -72,27 +71,47 @@ export class DepositExecutor {
   }
 
   /** Starts (or, for a known key, resumes) a deposit. Errors before signing mean nothing was charged. */
-  start(request: DepositRequest): Promise<PaymentAttempt> {
-    const key = `${request.userId}\u0000${request.flow}\u0000${request.idempotencyKey}`;
-    const running = this.inflight.get(key);
-    if (running) return running;
-    const work = this.startOnce(request).finally(() => this.inflight.delete(key));
-    this.inflight.set(key, work);
-    return work;
+  async start(request: DepositRequest): Promise<PaymentAttempt> {
+    if (request.amountStroops <= 0n) throw new ServiceError('INVALID_AMOUNT', 400, 'Enter a positive payment amount.');
+    let attempt = await this.options.store.findByKey(request.userId, request.flow, request.idempotencyKey);
+    if (!attempt) {
+      let deploymentId: string;
+      try { deploymentId = this.options.registry.client(request.flow).deploymentId; }
+      catch { throw new ServiceError('PAYMENTS_NOT_CONFIGURED', 503, "Payments aren't set up on the server yet"); }
+      const status = await this.options.registry.status(request.flow);
+      if (!status.ready) throw new ServiceError('FLOW_NOT_READY', 503, `${status.label} isn't ready: ${status.problems[0] ?? 'unknown problem'}`);
+      const at = this.now().toISOString();
+      attempt = await this.options.store.create({
+        id: `att_${randomUUID()}`, userId: request.userId, flow: request.flow, deploymentId,
+        idempotencyKey: request.idempotencyKey, kind: 'deposit', amountStroops: request.amountStroops.toString(),
+        assetCode: 'XLM', assetIssuer: null, amountCentavos: request.amountCentavos,
+        merchantId: request.merchantId, reference: request.reference, from: request.signer.publicKey(),
+        meta: request.meta, status: 'created', createdAt: at, updatedAt: at,
+      });
+    }
+    return this.options.store.withLock(attempt.id, () => this.startOnce(request, attempt!.id));
   }
 
-  private async startOnce(request: DepositRequest): Promise<PaymentAttempt> {
-    const existing = this.options.store.findByKey(request.userId, request.flow, request.idempotencyKey);
-    if (existing) {
-      if (existing.amountStroops !== request.amountStroops.toString() || existing.merchantId !== request.merchantId
-        || existing.reference !== request.reference) {
-        throw new ServiceError('PAYMENT_ID_REUSED', 409, 'This payment id was already used for a different payment.');
-      }
-      if (existing.status === 'cancelled') {
-        throw new ServiceError('PAYMENT_CANCELLED', 409, existing.failure?.reason ?? 'This payment was cancelled before it was sent.');
-      }
-      // Anything already handed to Paiflow is only ever checked, never prepared again.
-      if (existing.status !== 'created' && existing.status !== 'awaiting_authorization') return this.refresh(existing);
+  private async startOnce(request: DepositRequest, id: string): Promise<PaymentAttempt> {
+    // Always read after acquiring the shared database lock; caller snapshots may be stale.
+    const existing = await this.options.store.get(id);
+    if (!existing) throw new ServiceError('PAYMENT_NOT_FOUND', 404, 'No payment with this id reached the server.');
+    if (existing.amountStroops !== request.amountStroops.toString() || existing.amountCentavos !== request.amountCentavos
+      || existing.merchantId !== request.merchantId || existing.reference !== request.reference
+      || existing.from !== request.signer.publicKey()) {
+      throw new ServiceError('PAYMENT_ID_REUSED', 409, 'This payment id was already used for a different payment.');
+    }
+    const lapses = typeof existing.meta?.quoteExpiresAt === 'string' ? Date.parse(existing.meta.quoteExpiresAt) : NaN;
+    if (existing.status === 'awaiting_authorization' && this.now().getTime() > lapses) {
+      await this.save(existing, 'cancelled', { failure: { code: 'QUOTE_EXPIRED', reason: 'This checkout expired before it was authorized' } });
+      throw new ServiceError('QUOTE_EXPIRED', 409, 'This checkout expired before it was authorized');
+    }
+    if (existing.status === 'cancelled') {
+      throw new ServiceError('PAYMENT_CANCELLED', 409, existing.failure?.reason ?? 'This payment was cancelled before it was sent.');
+    }
+    // A durable envelope is never prepared or signed again, including after a crash before submit.
+    if (existing.signedXdr || (existing.status !== 'created' && existing.status !== 'awaiting_authorization')) {
+      return this.refreshLocked(existing);
     }
 
     const { registry } = this.options;
@@ -101,6 +120,9 @@ export class DepositExecutor {
       client = registry.client(request.flow);
     } catch {
       throw new ServiceError('PAYMENTS_NOT_CONFIGURED', 503, "Payments aren't set up on the server yet");
+    }
+    if (client.deploymentId !== existing.deploymentId) {
+      throw new ServiceError('PAYMENTS_NOT_CONFIGURED', 503, 'This payment deployment is no longer configured.');
     }
     const status = await registry.status(request.flow);
     if (!status.ready) {
@@ -143,18 +165,27 @@ export class DepositExecutor {
       updatedAt: at,
     };
     // Saved before submission: a crash or timeout from here on is reconciled with this exact envelope.
-    this.options.store.put(attempt);
+    await this.options.store.put(attempt);
     this.lastChecked.set(attempt.id, this.now().getTime());
     return this.submit(attempt, { first: true });
   }
 
   /** Latest state of a deposit attempt; Paiflow is asked at most once per poll interval. */
   async refresh(attempt: PaymentAttempt): Promise<PaymentAttempt> {
-    if (isFinal(attempt) || attempt.kind !== 'deposit') return attempt;
+    return this.options.store.withLock(attempt.id, async () => {
+      const current = await this.options.store.get(attempt.id);
+      if (!current) throw new ServiceError('PAYMENT_NOT_FOUND', 404, 'No payment with this id reached the server.');
+      return this.refreshLocked(current);
+    });
+  }
+
+  private async refreshLocked(attempt: PaymentAttempt): Promise<PaymentAttempt> {
+    if (isFinal(attempt) || attempt.kind !== 'deposit' || !attempt.signedXdr || !attempt.txHash) return attempt;
     const now = this.now().getTime();
     if (now - (this.lastChecked.get(attempt.id) ?? 0) < (this.options.pollIntervalMs ?? 2000)) return attempt;
     this.lastChecked.set(attempt.id, now);
-    if (!this.options.registry.configured(attempt.flow)) {
+    if (!this.options.registry.configured(attempt.flow)
+      || this.options.registry.config(attempt.flow).deploymentId !== attempt.deploymentId) {
       // The deployment's settings were removed: the outcome can't be checked, so it stays as it is.
       this.log(`[${attempt.flow}] can't check ${attempt.id}: the flow is no longer configured.`);
       return attempt;
@@ -219,9 +250,9 @@ export class DepositExecutor {
     }
   }
 
-  private save(attempt: PaymentAttempt, status: AttemptStatus, patch: Partial<PaymentAttempt> = {}): PaymentAttempt {
+  private async save(attempt: PaymentAttempt, status: AttemptStatus, patch: Partial<PaymentAttempt> = {}): Promise<PaymentAttempt> {
     const next: PaymentAttempt = { ...attempt, ...patch, status, updatedAt: this.now().toISOString() };
-    this.options.store.put(next);
+    await this.options.store.put(next);
     return next;
   }
 

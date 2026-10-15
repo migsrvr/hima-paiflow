@@ -76,6 +76,13 @@ export function createApp({ corsOrigins = [], log = console.log, ...s }: AppOpti
     payments: s.checkout.configured && s.registry.configured('checkout'),
   }));
 
+  // Readiness is public and reports only persistent-store health, never database details.
+  app.get('/ready', (_req, res) => {
+    s.attempts.ready().then(() => res.json({ status: 'ready' })).catch(() => {
+      res.status(503).json({ status: 'not_ready' });
+    });
+  });
+
   // Public: sign-in, deployment readiness (no secrets), merchant tag lookup.
   app.use('/api/auth', authRoutes(s.sessions));
   app.use('/api/paiflow', paiflowRoutes(s.registry, s.catalog));

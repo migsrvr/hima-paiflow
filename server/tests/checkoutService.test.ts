@@ -50,7 +50,7 @@ test('paying a quote prepares once and keeps the same record', async () => {
   assert.equal(paiflow.prepares.length, 1);
   assert.equal(a.state, 'pending');
   assert.match(a.txHash ?? '', /^[0-9a-f]{64}$/);
-  assert.equal(store.list().length, 1);
+  assert.equal((await store.list()).length, 1);
   assert.deepEqual(a.split.map((l) => l.assetAmount), ['10.1999999', '1.1333334']);
   await checkout.pay(USER, { quoteId: quote.quoteId });
   assert.equal(paiflow.prepares.length, 1);
@@ -101,9 +101,10 @@ test('a confirmed payment is verified against the Split on Horizon', async () =>
   horizon.credit(paid.txHash as string, [CANTEEN, '10.1999999'], [SAVINGS, '1.1333334']);
   clock.advance(2500);
 
-  const attempt = store.get(paid.id);
+  const attempt = await store.get(paid.id);
   assert.ok(attempt);
-  const confirmed = await checkout.present({ ...attempt, status: 'confirmed', ledger: 5185778 });
+  await store.put({ ...attempt, status: 'confirmed', ledger: 5185778 });
+  const confirmed = await checkout.present(attempt);
   assert.equal(confirmed.verification?.status, 'verified');
   assert.deepEqual(confirmed.verification?.legs.map((l) => [l.label, l.assetAmount, l.ok]), [
     ['Campus Canteen', '10.1999999', true],
@@ -111,18 +112,28 @@ test('a confirmed payment is verified against the Split on Horizon', async () =>
   ]);
   assert.deepEqual(confirmed.autoSaved, { amount: 8.5, assetAmount: '1.1333334', verified: true });
   // Stored, so later reads don't ask Horizon again.
-  assert.equal((store.get(paid.id)?.meta?.verification as { status: string }).status, 'verified');
+  assert.equal(((await store.get(paid.id))?.meta?.verification as { status: string }).status, 'verified');
 });
 
 test('a payment is found by its Hima id or the app\'s payment id, and only by its owner', async () => {
   const { checkout, store } = setup();
   const view = await checkout.quote(USER, LUNCH);
-  assert.equal(findOwnedAttempt(store, USER, view.id).id, view.id);
-  assert.equal(findOwnedAttempt(store, USER, LUNCH.paymentId).id, view.id);
+  assert.equal((await findOwnedAttempt(store, USER, view.id)).id, view.id);
+  assert.equal((await findOwnedAttempt(store, USER, LUNCH.paymentId)).id, view.id);
   for (const lookup of [view.id, LUNCH.paymentId]) {
-    assert.throws(() => findOwnedAttempt(store, 'someone@else.edu', lookup), (e: unknown) =>
+    await assert.rejects(findOwnedAttempt(store, 'someone@else.edu', lookup), (e: unknown) =>
       e instanceof ServiceError && e.code === 'PAYMENT_NOT_FOUND' && e.status === 404);
   }
   await assert.rejects(checkout.pay('someone@else.edu', { quoteId: view.quoteId }), (e: unknown) =>
     e instanceof ServiceError && e.code === 'PAYMENT_NOT_FOUND');
+});
+
+test('concurrent quote claims return one record and conflicting requests cannot reuse it', async () => {
+  const { checkout, store, paiflow } = setup();
+  const quotes = await Promise.all(Array.from({ length: 8 }, () => checkout.quote(USER, LUNCH)));
+  assert.equal(new Set(quotes.map((quote) => quote.id)).size, 1);
+  assert.equal((await store.list()).length, 1);
+  await assert.rejects(checkout.quote(USER, { ...LUNCH, amount: 90 }), (error: unknown) =>
+    error instanceof ServiceError && error.status === 409 && error.code === 'PAYMENT_ID_REUSED');
+  assert.equal(paiflow.prepares.length, 0);
 });

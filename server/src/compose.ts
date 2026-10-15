@@ -4,6 +4,7 @@ import type { AppServices } from './app.js';
 import type { ServerConfig } from './config.js';
 import { PaiflowRegistry } from './integrations/paiflow/registry.js';
 import { FileAttemptStore, type AttemptStore } from './services/attemptStore.js';
+import { createPostgresPool, PostgresAttemptStore } from './services/postgresAttemptStore.js';
 import { ChatService } from './services/chatService.js';
 import { CheckoutService } from './services/checkoutService.js';
 import { DepositExecutor } from './services/depositExecutor.js';
@@ -41,7 +42,9 @@ export function compose(config: ServerConfig, options: { log?: (message: string)
 
   const horizon = new HorizonClient({ baseUrl: config.stellar.horizonUrl });
   const registry = new PaiflowRegistry({ baseUrl: config.paiflow.baseUrl, timeoutMs: config.paiflow.timeoutMs, flows: config.paiflow.flows });
-  const attempts = options.attempts ?? new FileAttemptStore(config.files.attempts);
+  const attempts = options.attempts ?? (config.storage.backend === 'postgres'
+    ? new PostgresAttemptStore(createPostgresPool(config.storage.databaseUrl, config.storage.sslCa))
+    : new FileAttemptStore(config.files.attempts));
   const executor = new DepositExecutor({ registry, horizon, store: attempts, log });
   const verifier = new PaymentVerifier({ horizon, log });
   const catalog = buildCatalog({

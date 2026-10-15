@@ -18,6 +18,10 @@ const PUBLIC_KEY = /^G[A-Z2-7]{55}$/;
 const flag = z.string().trim().toLowerCase().transform((v) => v === 'true' || v === '1' || v === 'yes').default('false');
 
 const environmentSchema = z.object({
+  RENDER: flag,
+  STORAGE_BACKEND: z.enum(['file', 'postgres']).default('file'),
+  DATABASE_URL: z.string().trim().default(''),
+  DATABASE_SSL_CA: z.string().default(''),
   GROQ_API_KEY: z.string().trim().default(''),
   GROQ_MODEL: z.string().trim().min(1).default('openai/gpt-oss-120b'),
   AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(60000),
@@ -88,6 +92,11 @@ export function loadConfig() {
     throw new Error(`Invalid server configuration: ${parsed.error.issues.map((issue) => issue.path.join('.')).join(', ')}`);
   }
   const env = parsed.data;
+  if (env.RENDER && env.STORAGE_BACKEND !== 'postgres') throw new Error('Render requires STORAGE_BACKEND=postgres.');
+  if ((env.RENDER || env.STORAGE_BACKEND === 'postgres') && !env.SESSION_SECRET) {
+    throw new Error('Hosted persistence requires a stable SESSION_SECRET (at least 32 characters).');
+  }
+  if (env.STORAGE_BACKEND === 'postgres' && !env.DATABASE_URL) throw new Error('Postgres storage requires DATABASE_URL.');
   const warnings: string[] = [];
   const checkoutRecipients = recipients(env.PAIFLOW_CHECKOUT_RECIPIENTS, 'PAIFLOW_CHECKOUT_RECIPIENTS', ['merchant', 'savings']);
   const allowanceRecipients = recipients(env.PAIFLOW_ALLOWANCE_RECIPIENTS, 'PAIFLOW_ALLOWANCE_RECIPIENTS', ['spending', 'savings', 'emergency']);
@@ -124,6 +133,8 @@ export function loadConfig() {
   const dataDir = env.DATA_DIR || resolve(SERVER_ROOT, 'data');
 
   return {
+    storage: { backend: env.STORAGE_BACKEND, databaseUrl: env.DATABASE_URL, sslCa: env.DATABASE_SSL_CA || undefined },
+    hosted: env.RENDER,
     apiKey: env.GROQ_API_KEY,
     model: env.GROQ_MODEL,
     timeoutMs: env.AI_TIMEOUT_MS,

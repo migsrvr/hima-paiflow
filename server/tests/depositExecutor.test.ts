@@ -31,7 +31,7 @@ test('verifies, signs, saves before submitting, then confirms', async () => {
   const { paiflow, executor, store, clock } = setup();
   paiflow.onSubmit = async (signedXdr) => {
     // The signed envelope is stored before Paiflow ever sees it.
-    const saved = store.findByKey(USER, 'checkout', LUNCH.idempotencyKey);
+    const saved = await store.findByKey(USER, 'checkout', LUNCH.idempotencyKey);
     assert.equal(saved?.status, 'submitted');
     assert.equal(saved?.signedXdr, signedXdr);
     return { txHash: hashOf(signedXdr), status: 'PENDING' };
@@ -83,7 +83,7 @@ test('refuses a deployment that is not ready (USDC input) before preparing anyth
   await assert.rejects(executor.start(LUNCH), (e: unknown) =>
     e instanceof ServiceError && e.code === 'FLOW_NOT_READY' && e.status === 503 && /USDC/.test(e.message));
   assert.equal(paiflow.prepares.length, 0);
-  assert.equal(store.list().length, 0);
+  assert.equal((await store.list()).length, 0);
 });
 
 test('never signs an envelope other than the requested deposit', async () => {
@@ -109,7 +109,7 @@ test('never signs an envelope other than the requested deposit', async () => {
     await assert.rejects(executor.start(LUNCH), (e: unknown) => e instanceof ServiceError && e.code === 'PAIFLOW_BAD_ENVELOPE', name);
     assert.deepEqual(logs, [`Refused a Paiflow envelope: ${name}.`]);
     assert.equal(paiflow.submits.length, 0, name);
-    assert.equal(store.list().length, 0, name);
+    assert.equal((await store.list())[0]?.signedXdr, undefined, name);
   }
 });
 
@@ -125,7 +125,7 @@ test('preparation errors mean nothing was signed or charged', async () => {
     const { paiflow, executor, store } = setup();
     paiflow.onPrepare = async () => { throw error; };
     await assert.rejects(executor.start(LUNCH), (e: unknown) => e instanceof ServiceError && e.code === code && e.status === status, code);
-    assert.equal(store.list().length, 0);
+    assert.equal((await store.list())[0]?.signedXdr, undefined);
     assert.equal(paiflow.submits.length, 0);
   }
 });
@@ -211,7 +211,7 @@ test('pending attempts survive a server restart', async () => {
     const created = await first.executor.start(LUNCH);
     const restarted = setup(new FileAttemptStore(file));
     restarted.paiflow.onStatus = async (hash) => ({ txHash: hash, status: 'SUCCESS', ledger: 5 });
-    const reloaded = restarted.store.findByKey(USER, 'checkout', LUNCH.idempotencyKey);
+    const reloaded = await restarted.store.findByKey(USER, 'checkout', LUNCH.idempotencyKey);
     assert.ok(reloaded);
     const after = await restarted.executor.refresh(reloaded);
     assert.equal(after.txHash, created.txHash);
@@ -235,4 +235,81 @@ test('the sponsor can sign for the allowance flow through its own deployment', a
   assert.equal(attempt.deploymentId, IDS.allowance);
   assert.equal(attempt.from, sponsor.publicKey());
   assert.deepEqual(allowance.prepares, [{ from: sponsor.publicKey(), amount: '120000000' }]);
+});
+
+test('independent executors serialize signing/submission and reject concurrent key conflicts', async () => {
+  const { paiflow, executor, store, registry, horizon, clock } = setup();
+  const other = new DepositExecutor({ registry, horizon, store, now: clock.now, log: () => {} });
+  let activeSubmits = 0;
+  paiflow.onSubmit = async (signedXdr) => {
+    assert.equal(++activeSubmits, 1);
+    await Promise.resolve();
+    activeSubmits--;
+    return { txHash: hashOf(signedXdr), status: 'PENDING' };
+  };
+  const results = await Promise.allSettled([
+    executor.start(LUNCH), other.start(LUNCH), other.start({ ...LUNCH, amountStroops: 1n }),
+  ]);
+  assert.equal(results[0].status, 'fulfilled');
+  assert.equal(results[1].status, 'fulfilled');
+  assert.equal(results[2].status, 'rejected');
+  assert.equal(paiflow.prepares.length, 1);
+  assert.equal(new Set(paiflow.submits).size, 1);
+  const attempt = (await store.list())[0];
+  paiflow.onStatus = async (hash) => ({ txHash: hash, status: 'SUCCESS', ledger: 19 });
+  clock.advance(2500);
+  await executor.refresh(attempt);
+  // A stale snapshot from another instance must not reverse a confirmed record.
+  assert.equal((await other.refresh(attempt)).status, 'confirmed');
+});
+
+test('a crash after signed persistence but before submit recovers the exact envelope', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hima-interrupted-'));
+  const file = join(dir, 'attempts.json');
+  class InterruptedStore extends FileAttemptStore {
+    override async put(attempt: import('../src/services/attemptStore.js').PaymentAttempt) {
+      await super.put(attempt);
+      if (attempt.status === 'submitted') throw new Error('simulated process interruption');
+    }
+  }
+  try {
+    const first = setup(new InterruptedStore(file));
+    await assert.rejects(first.executor.start(LUNCH), /simulated process interruption/);
+    assert.equal(first.paiflow.submits.length, 0);
+    const persisted = (await first.store.list())[0];
+    assert.equal(persisted.status, 'submitted');
+    assert.ok(persisted.signedXdr);
+    const restarted = setup(new FileAttemptStore(file));
+    const recovered = await restarted.executor.start(LUNCH);
+    assert.equal(recovered.txHash, persisted.txHash);
+    assert.equal(restarted.paiflow.prepares.length, 0);
+    assert.deepEqual(restarted.paiflow.submits, [persisted.signedXdr]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('failed signed persistence prevents submission', async () => {
+  class UnwritableStore extends MemoryAttemptStore {
+    override async put(attempt: import('../src/services/attemptStore.js').PaymentAttempt) {
+      if (attempt.signedXdr) throw new ServiceError('STORAGE_UNAVAILABLE', 503, 'Storage unavailable');
+      await super.put(attempt);
+    }
+  }
+  const { executor, paiflow, store } = setup(new UnwritableStore());
+  await assert.rejects(executor.start(LUNCH), (error: unknown) => error instanceof ServiceError && error.code === 'STORAGE_UNAVAILABLE');
+  assert.equal(paiflow.submits.length, 0);
+  assert.equal((await store.list())[0].signedXdr, undefined);
+});
+
+test('a changed deployment cannot prepare or resubmit an old attempt', async () => {
+  const { executor, paiflow, clock, store, horizon } = setup();
+  const pending = await executor.start(LUNCH);
+  const changed = new FakePaiflow(clock, 'different-deployment');
+  // The client may be replaced when hosted configuration changes; keep the old signed attempt intact.
+  const replacement = fakeRegistry(clock, { checkout: changed }, { checkout: { deploymentId: 'different-deployment' } });
+  const restarted = new DepositExecutor({ registry: replacement, horizon, store, now: clock.now, log: () => {} });
+  clock.advance(2500);
+  assert.equal((await restarted.refresh(pending)).signedXdr, pending.signedXdr);
+  assert.equal(changed.prepares.length, 0);
+  assert.equal(changed.submits.length, 0);
+  assert.equal(paiflow.prepares.length, 1);
 });
