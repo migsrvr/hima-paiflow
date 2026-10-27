@@ -1,4 +1,4 @@
-# Hima × Paiflow: progress handoff
+x # Hima × Paiflow: progress handoff
 
 The approved plan is in `C:\Users\Miggy\.claude\plans\prancy-beaming-muffin.md`. This file records where that plan stands: what is built, what is unfinished, and what to do next.
 
@@ -122,46 +122,24 @@ Paiflow API facts come from the public spec `https://beta.app.paiflow.xyz/api/v1
 - New `components/finance/StellarWalletSheet.tsx`: full key with copy, balance, demo rate, deployment, network, Stellar.Expert, and Paiflow contract link.
 - New `components/finance/FreighterLinkSheet.tsx`: paste, validate on the server, save, update or remove.
 
-**Completed in Phase 1:**
-- **`app/(tabs)/profile.tsx`**:
-  - Imported `NETWORK_NAME` from `@/services/payments/network`.
-  - Replaced `address` with `chain` from `budget.chain`.
-  - Added "Stellar / Paiflow wallet" row opening `StellarWalletSheet`.
-  - Added "Freighter (testnet)" row with `KeyRound` icon opening `FreighterLinkSheet`.
-  - Dynamic connection badge (`Connected`, `Checking…`, `Offline`, `Not set up`).
-  - Added `useChainSync()` hook on screen focus.
-- **`app/dev/payment.tsx`**:
-  - Imported `NETWORK_NAME` from `@/services/payments/network`.
-  - Added Settled row to `14a-Result-Success` preview.
-- **Verification**:
-  - `npx tsc --noEmit`: 0 errors.
-  - `npm test`: 12 test suites, 80 tests passing cleanly.
-  - No AI / Groq files were touched.
+**Still to do:**
+1. **`app/(tabs)/profile.tsx`** (currently fails `tsc`, because it still uses `address` and the old `NETWORK_NAME` import). Changes needed:
+   - Import `NETWORK_NAME` from `@/services/payments/network`.
+   - Wallet row: label "Stellar / Paiflow wallet", detail `shortAccount(chain.publicKey)` (or "Checking…"/"Not connected"), and `onPress` opens `StellarWalletSheet`.
+   - New row "Freighter (testnet)" with the `KeyRound` icon, detail = short address · `freighterBalanceLabel` or "Not linked", opening `FreighterLinkSheet`.
+   - The Connection badge follows `useWalletStore(s => s.connection)`. Each state is icon + label + color:
 
-## AI provider: switched from Kimi to Groq (DONE)
-- `server/src/services/kimiService.ts` became `chatService.ts` (`ChatService`, `ChatServiceError`, `ChatClient`). It uses an OpenAI-compatible endpoint, defaulting to `https://api.groq.com/openai/v1/chat/completions`, with temperature 0.3 and JSON mode.
-- Environment: `GROQ_API_KEY`, `GROQ_MODEL` (default `openai/gpt-oss-120b`; `llama-3.3-70b-versatile` isn't enabled for this key), `AI_TIMEOUT_MS`. The `KIMI_*` variables are gone.
-- `/health` now returns `{status, ai, payments}`. `createApp({ ai, payments })`.
-- Verified live: a grounded JSON answer came back. 33/33 server tests and 7 mobile AI tests pass.
-- UI copy now says "Powered by Groq" (AssistantView, AIInsightCard) and "Suggestions come from Groq" (Profile). This is a deliberate deviation, because the design says Kimi.
+     | State | Badge |
+     |---|---|
+     | connected | synced "Connected" (Check) |
+     | checking | pending "Checking…" |
+     | offline | pending "Offline" (CloudOff) |
+     | notSetUp | overPlan "Not set up" |
 
-## Backend logging and the web-preview CORS fix (DONE)
-- **Symptom:** testing the AI on the Expo web preview showed no backend logs.
-- **Root causes:**
-  1. `CORS_ORIGINS` wasn't set, so the browser blocked `POST /ai/chat` after the preflight.
-  2. The server logged no requests at all.
-  3. `mobile/services/ai.ts` silently fell back to local answers.
-- **Fixes:**
-  - `server/src/app.ts` logs one line per request (method, path, status, time, origin; never bodies). It logs once per blocked browser origin with the fix to apply.
-  - `server/src/services/chatService.ts` logs `[ai]` lines: answer latency, provider status and error code, rejected numbers, timeouts. The API key is never logged.
-  - `server/src/server.ts` prints the AI model and the allowed browser origins at startup.
-  - `server/.env` now has `CORS_ORIGINS=http://localhost:8081,http://127.0.0.1:8081`.
-  - `mobile/services/ai.ts` uses `apiFetch`. In dev it `console.warn`s why it used the local answer, including a CORS hint on the web.
-- **Environment notes:**
-  - The backend and Expo run inside WSL (`tsx watch`, `expo start --web`), and Windows `localhost` forwards to them through `wslrelay`.
-  - `server/node_modules` now has Linux esbuild, so run `npm test` and `npm run dev` from WSL. On Windows, use `npx tsc && node dist/server.js`.
-  - A Codex session is also editing this repo.
-- **Verified:** 34/34 server tests pass in WSL. From a real browser page on `localhost:8081`, the AI request returns 200 with a Groq answer, and the log shows `OPTIONS 204`, `[ai] Answered in ~1.3 s`, then `POST /ai/chat 200`.
+   - Call `useChainSync()`, and refresh the linked Freighter balance on focus.
+2. **`app/dev/payment.tsx`** (currently fails `tsc`): import `NETWORK_NAME` from `network.ts`, and add a Settled row to the 14a preview.
+3. Run `npx tsc --noEmit`, `npx expo lint`, `npx jest`, and `npx expo export --platform android` (this confirms BigInt works in the bundle).
+4. Take web screenshots of 07 Home, 12a, 14a, 13a PIN and 15 Profile and compare them with `design/screens/*.html`, using the scratchpad `shots-tool`. List the deviations.
 
 ## Batch D: AI grounding: NOT STARTED
 - `mobile/services/ai.ts`:
@@ -173,103 +151,40 @@ Paiflow API facts come from the public spec `https://beta.app.paiflow.xyz/api/v1
   - Have `contextFigures` add XLM rows.
 - Add tests on both sides.
 
-## Verification & Execution Status
-- **Phase 1 (Mobile UI & Wiring)**: **COMPLETE**
-  - All 12/12 mobile Jest test suites passed (80/80 tests).
-  - All 33/33 server tests passed.
-  - `npx tsc --noEmit`: 0 errors.
-  - Profile tab, Dev payment screen, StellarWalletSheet, and FreighterLinkSheet wired and verified.
-- **Phase 2 (Paiflow Setup & Smoke Test)**: **COMPLETE & VERIFIED ON-CHAIN**
-  - Configured native XLM flow with Paiflow deployment `37180696-65cb-4c0c-8c36-42bbeb42f9ae` and trigger contract `CCT6LD7D5EGS2KZP4CH5VUFOBCY5HW72UWKRROV6DA4LCNKDTADVRT2J`.
-  - Executed `npm run paiflow:smoke`:
-    - Deposit: `11.3333333 XLM` (₱85.00) from Student Wallet (`GCSMEZNXKX34EVBRE2EOX24GF4LTNK5KTYBQWGZT55PHA4MZ7YHRJXIG`).
-    - Smart Contract split: 90% (10.20 XLM) + 10% (1.13 XLM) payout.
-    - Transaction Hash: `dcafb475acce07ee294df7e8146ed51479f3178c2af367575166928528e9fa35`
-    - Status: **Confirmed (ledger 5185517)**
-    - Explorer link: `https://stellar.expert/explorer/testnet/tx/dcafb475acce07ee294df7e8146ed51479f3178c2af367575166928528e9fa35`
-- **Phase 3 (AI Grounding with Dual Currency)**: In Progress
-  - Pass `walletBalanceXlm` and `safeToSpendXlm` into Groq context from mobile to server so AI can answer XLM budgeting questions accurately without hallucinations.
-- **Phase 4 (Physical Device Demo)**: Ready for run
-  - Android phone connects to `npm run start:windows -- 192.168.1.38`.
-  - Tap card `22:E9:4A:7A` → checkout `₱85.00 ≈ 11.33 XLM` → PIN `1234` → on-chain testnet receipt with `stellar.expert` link.
+## Verification still to do
+- **Live:** once the user adds the token, run `npm run stellar:setup` again (it checks `inputAsset`; if that isn't native XLM, stop and ask), then `npm run paiflow:smoke`. Confirm the transaction invokes `CAKRU6…` and credits the canteen. The envelope's amount-argument check has only been tested against locally built envelopes, so this is its first real test.
+- **Web end-to-end:** start the server with `PORT=3101 CORS_ORIGINS=http://localhost:8081`, and Expo web with `EXPO_PUBLIC_API_URL=http://127.0.0.1:3101`. Then:
+  - Pay ₱85 and check the wallet goes from 2,580 to 2,495, with a real hash and the Settled row.
+  - Stop the server mid-payment and check the payment shows Pending, then that Check status resolves it with no mascot.
+  - Without a token, a local fake-Paiflow stub can stand in, as long as it is labelled simulated.
+- **Device (user):** `npm run start:windows -- 192.168.1.38`, tap the ID, checkout shows ₱85.00 ≈ 11.33 XLM, enter PIN 1234, check the receipt, and use View on explorer. No new native modules were added, so the existing dev APK still works.
 
+## User to-dos
+1. Add `PAIFLOW_API_TOKEN=pfk_…` to `server/.env` yourself, not in chat. Paiflow shows a token only once; if it's lost, create a new one.
+2. In Paiflow, set the Split node to send 100% to the canteen address `GABKWTD3MBOECRLCAWBRHSIYYCFXS2BIHASGIUZXZWLGDWADNO4H2X3O`, and redeploy if asked. A redeploy changes the deployment id, which must then be updated in `.env`.
+3. Rotate the Kimi API key.
+4. Stop the old WSL Hima server on port 3001.
 
----
+## Hosted downloadable demo implementation — 15 October 2026
 
-## Multi-flow integration (three deployments, one client)
-Plan: `C:\Users\Miggy\.claude\plans\prancy-beaming-muffin.md`.
+User decisions: small demo tester group, free hosting only, accept occasional wake-up delay, build APKs on the Windows PC and upload them manually. Hosting remains Render Free + Supabase Free; no paid services or production-auth changes are authorized.
 
-**Agreed decisions:**
-- **Flow 1:** the student pays ₱85; 90% goes to the canteen and 10% is auto-saved.
-- **Flow 2:** funded by a sponsor wallet via `execute`.
-- **Flow 3:** the reward when a week's spending is at or under its Spending allocation.
-- **Storage:** JSON-file store plus HMAC session tokens.
+- Server: async file/PostgreSQL payment stores, atomic idempotency claims, session advisory locks, autocommitted signed-envelope storage before submission, restart recovery and changed-deployment protection. Public `/ready` checks storage; hosted configuration requires PostgreSQL and a stable session secret. Database errors never fall back to temporary files.
+- Added transactional schema migration and all-or-nothing import of the existing JSON records. Exact reimports skip; any identity/content conflict aborts. Existing local `.env` and attempt records were preserved. Example credentials were blanked. Live smoke scripts now use the configured durable store and close it in `finally`; they were not executed.
+- Root `render.yaml` defines a single Free Node 22 service, server build/start commands, readiness health check, and private environment prompts. Automatic deploys are off. No account resources have been created.
+- Mobile: shared bounded `/ready` probes on launch/foreground and before API operations, accessible nonblocking connecting/unavailable Retry banner, immediate local demo login, and serialized session persistence. Requests and polling remain bound to the initiating account across wake delays, lost responses and renewal. Readiness never replays payment POSTs; unknown payment outcomes remain pending.
+- Windows `npm.cmd run apk:windows` produces a versioned APK, SHA-256 file and public release metadata without a connected phone. Hosted builds require a public HTTPS origin, preserve the demo signing key, increment version codes, track the API URL as a Gradle bundle input, and inspect the packaged bundle/policy/version before exporting. Local USB builds remain available.
+- Added deployment, migration, backup, distribution and update instructions in [docs/HOSTED_DEMO.md](docs/HOSTED_DEMO.md). The existing nested mobile Git arrangement was preserved.
 
-### Phase 1, shared layer: DONE
-**Server:**
-- `src/integrations/paiflow/` holds the shared layer:
-  - `client.ts`: one client per deployment. New calls: webhook (`x-webhook-secret` plus `Idempotency-Key`), balances, funding.
-  - `registry.ts`: per-flow config and readiness. It never falls back to another flow's deployment, and it flags a USDC deployment or the wrong trigger.
-  - `types.ts`, `errors.ts`.
-- **Services:**
-  - `depositExecutor.ts`: the old `PaymentService` engine, generalized by flow and signer.
-  - `attemptStore.ts`: `data/attempts.json`, unique per user, flow and key, with spec statuses.
-  - `attemptView.ts`, `checkoutService.ts`, `walletService.ts`, `sessionService.ts`, `flowCatalog.ts`.
-- **Wiring:** `compose.ts` is shared by the server and the scripts.
-- **Routes:** everything is under `/api`, and `middleware/auth.ts` (`requireSession`) protects every user route.
-  - Public: `POST /api/auth/session`, `GET /api/paiflow/flows`, `GET /api/merchants/resolve-tag/:uid`.
-  - Session required: `POST /api/ai/chat`, `GET /api/wallet/stellar`, `GET /api/wallet/stellar/accounts/:addr`, `POST /api/checkout/payments`, `GET /api/payments/:id`.
-- **Config:** `PAIFLOW_BASE_URL`, `PAIFLOW_{CHECKOUT,ALLOWANCE,REWARD}_{ID,TOKEN}`, the trigger contracts, `PAIFLOW_REWARD_WEBHOOK_SECRET`, `SESSION_SECRET`, and the sponsor, savings and emergency wallets. Legacy `PAIFLOW_DEPLOYMENT_ID`, `PAIFLOW_API_TOKEN` and `PAIFLOW_TRIGGER_CONTRACT` still work as **checkout only**, with a warning.
-- **Scripts:** `stellar:setup` is extended (all wallets, `SESSION_SECRET`, Paiflow builder instructions), `paiflow:check` is new, and `paiflow:smoke` is ported.
-- **Tests:** 50/50 pass, in WSL, because `server/node_modules` has Linux esbuild. Typecheck and build are clean.
+Verification: server build/typecheck passed; server tests 73 passed and one real-PostgreSQL integration test explicitly skipped without a test database. Mobile full Jest run passed all 18 suites/107 tests; final affected API/payment and session persistence tests also run after review fixes. Six APK/configuration checks passed, including exact-host HTTP XML, signing preservation, version increments and stale-bundle rejection. Mobile typecheck/lint passed using a Linux resolver binding isolated under `/tmp`, preserving the Windows dependency tree. Render YAML parses and Expo introspection confirms the HTTPS policy and version override. Independent review reproduced and verified fixes for both session races; no remaining actionable findings were reported.
 
-**Mobile:**
-- `services/api.ts` sends `Authorization: Bearer` and renews once on a 401. `setApiSession` is set by `stores/session.ts`.
-- `services/auth.ts` gets the token from `POST /api/auth/session` at sign-in and renews old `demo-…` tokens.
-- All calls use `/api/...`. The wallet store treats a deployment that isn't ready as "Not set up".
-- Lint fixes: the sheet resets moved out of effects (`FreighterLinkSheet`, `AuthorizeSheet`), and an unused NFC import was removed.
-- 13 suites / 83 tests pass (new `services/__tests__/api.test.ts`). `tsc` and lint are clean (lint runs in WSL).
+Remaining: Render and Supabase integrations are available but not connected. Actual database/TLS verification, payment-history import, hosted deployment, controlled testnet acceptance and creation/installation of the final hosted APK remain outstanding. This sandbox cannot execute Windows tools (`UtilBindVsockAnyPort: socket failed 1`) and has no live PostgreSQL. No live payments were submitted or APK uploaded. Connect the hosting accounts and follow the release guide to finish those external steps.
 
-**Live:**
-- `server/.env` points checkout at XLM deployment **`37180696-65cb-4c0c-8c36-42bbeb42f9ae`** (legacy key names), and it is ready.
-- A Phase 1 probe made a **real testnet checkout** for user `bea.reyes@example.com`: ₱85 = 11.3333333 XLM, tx `207a94233da6622e765d1973ff4e99b0ebb19f4222f66192ead6a16fd6a67d87`, confirmed in ledger 5185778.
-- Horizon effects:
-  - `GAHJPWGS…` received 10.1999999 XLM (90%)
-  - `GAUN5DT4…` received 1.1333334 XLM (10%)
-  - Paiflow rounds the first leg down, and the last leg takes the remainder.
-- Those recipients are not the `.env` canteen and savings wallets. Before Phase 2 verification, either set `STELLAR_MERCHANT_PUBLIC_KEY` and `STELLAR_SAVINGS_PUBLIC_KEY` to them, or point the Split at the wallets setup printed.
-- The attempt is recorded in `server/data/attempts.json` and would count as that user's spending.
+### Database provider changed to Neon — 15 October 2026
 
-**Restart the WSL server** (`npm run dev`) to load all of this. Then run `npm run stellar:setup` (it creates `SESSION_SECRET` and the new wallets) and `npm run paiflow:check`.
-
-### Next phases
-2. Checkout quote/pay with the 90/10 split, Horizon split verification, and the checkout and receipt lines.
-3. Allowance: sponsor deposits, branch rule (strictly > 10 XLM), three-leg verification, distributions API.
-4. Reward: keyed webhook, pool funding and balance, eligibility, claim and history.
-5. Insights cards, web and device end-to-end checks, docs.
-
-## USB backend connectivity debugging — 2026-10-14
-
-- User selected USB cable to this PC as the preferred device connection.
-- Inspected the local APK artifacts: the release Hermes bundle embeds `http://10.0.2.2:3001` and no LAN API address. Its merged manifest targets Android 36 without a cleartext allowance or network-security configuration. Those settings prevent physical-phone access to the local HTTP API. The debug APK has no embedded JS and permits cleartext; its URL comes from Metro. `server/.env` already uses `HOST=0.0.0.0`.
-- Added `npm.cmd run start:usb:windows`: selects the USB transport with `adb -d`, reverses ports 3001/8081, checks the Windows backend's `/health`, and starts localhost Metro with API `http://127.0.0.1:3001`.
-- Added `npm.cmd run usb:windows` to restore forwarding and check backend health without Metro for an embedded release APK.
-- Added `--usb` to the Windows Android build helper. It selects the USB phone and uses the localhost API for native configuration and embedded JavaScript. The helper now runs non-clean Android prebuild first, since `run:android` otherwise skips plugin application when `android/` exists. Other release builds require an explicit API URL.
-- Added `mobile/plugins/withLocalApi.cjs`, registered in `app.json`: permits cleartext only to the configured HTTP API hostname through Android network-security XML. HTTPS/no-override prebuild removes this plugin's previous manifest binding. No generated native source was edited by hand.
-- Updated `mobile/WINDOWS_PHONE_SETUP.md` with the USB workflow, one-time release rebuild, reconnection steps, and diagnostic evidence.
-- Checks: mobile TypeScript passes; Expo introspection confirms the network-security manifest binding; focused script checks pass for host restrictions, HTTPS/no-override cleanup, USB device selection, both port reversals, unavailable-device handling, build environment, and prebuild success/failure sequencing. Full lint was attempted but cannot load the missing Linux `unrs-resolver` native binding in this Windows dependency tree.
-- Remaining verification: Windows build/install, actual device/host health, and app API calls. This sandbox blocks sockets and Windows ADB interop (`UtilBindVsockAnyPort: socket failed 1`); the existing APK artifacts have not been rebuilt or installed here. No live payments were submitted.
-
-### USB build device-selection correction
-
-- The user's Windows run confirmed that phone `3B162T00Y9A00000` was authorized and both USB port reversals succeeded. Prebuild completed, then Expo rejected the ADB serial supplied to `--device`.
-- Confirmed in the installed Expo SDK 57 CLI: `resolveFromNameAsync` matches `device.name`, derived from `model:` in `adb devices -l`; it does not match the ADB serial.
-- Corrected `scripts/android-windows.cjs` and `scripts/usb-windows.cjs` to resolve the model name for Expo while preserving the serial for forwarding and `ANDROID_SERIAL`. Handles Windows CRLF/tab output, missing-model fallback, disconnected devices, duplicate model names, and explicitly supplied `--device` arguments.
-- Focused checks pass for model selection and build arguments, plus the existing USB forwarding/build checks. Actual Windows build/install still needs the same command rerun.
-
-### Release network XML lint correction
-
-- The next Windows run passed device selection and bundled JavaScript, but `lintVitalRelease` rejected the generated `<domain>` because `includeSubdomains` was omitted.
-- Corrected `mobile/plugins/withLocalApi.cjs` to emit `<domain includeSubdomains="false">…</domain>`, preserving the exact-host HTTP policy and satisfying the reported Android lint requirement. The build helper's prebuild step regenerates the resource on rerun; no manual native XML edits or lint suppression are needed.
-- Focused checks verify that the generated HTTP policies explicitly exclude subdomains and retain the configured host, alongside existing USB checks. Android release lint/build still requires a Windows rerun; this sandbox cannot execute the Windows Android toolchain.
-- The broader TypeScript check on this rerun reports a separate current error in `mobile/stores/payment.ts:70`: its `PaymentState` implementation is missing required `loadQuote`. That file was not edited for this XML correction.
+- User selected Neon instead of Supabase. Current hosting choice is **Render Free + Neon Free**; the earlier Supabase selection above is superseded.
+- Updated the release guide, server setup, environment example and Render Blueprint comment to require Neon's **direct** PostgreSQL connection, with Connection pooling OFF. No new database SDK or Neon API key is required by the app.
+- Payment processing retains its session-level advisory locks and persisted-envelope recovery. Neon uses transaction pooling on its `-pooler` endpoints, including port 5432; the pool factory now rejects these known hostnames. TLS certificate verification stays enabled, with supported SCRAM channel binding enabled in `pg`.
+- Schema and payment import remain standard PostgreSQL and need no provider-specific migration. Existing local credentials and payment records were not changed.
+- Verification: eight affected storage tests passed, including Neon direct/pooler URL checks; server typecheck and build passed; whitespace check passed. Live Neon connectivity/migration remains unverified.
+- Neon integration is available but not connected. Create a Free Neon project, turn pooling OFF in Connect, and set its private connection string as Render's `DATABASE_URL`, or connect Neon here to continue account setup. Render deployment and final Windows APK build remain outstanding.

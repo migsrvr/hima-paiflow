@@ -1,0 +1,12 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<style>html,body{margin:0;background:#19354A}#stage{position:relative;width:1920px;height:1080px;overflow:hidden;background:#F5FAFE}</style>
+</head><body><div id="stage"><div id="b" style="position:absolute;left:0;top:400px;width:300px;height:300px;border-radius:50%;background:#FFC83D"></div><h1 id="t" style="position:absolute;left:200px;top:100px;font:800 160px 'Plus Jakarta Sans';color:#19354A;margin:0">Hima ₱920.00</h1></div>
+<script>
+window.DURATION = 2;
+const b = document.getElementById('b');
+window.seek = t => { b.style.transform = `translateX(${t * 800}px)`; };
+window.measure = (t, s) => 800 * s;
+document.fonts.ready.then(() => { window.__ready = true; });
+</script></body></html>

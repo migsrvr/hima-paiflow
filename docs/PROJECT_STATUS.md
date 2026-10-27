@@ -3,6 +3,8 @@
 **Updated:** 14 October 2026  
 **Scope:** implementation visible in this workspace, checked against the existing project handoffs and plans.
 
+**Hosted demo addendum — 15 October 2026:** the repository now includes optional PostgreSQL payment persistence, migrations and import, a Render Free Blueprint, database readiness checks, mobile server wake/retry handling, and Windows APK-only export. The chosen database host is now Neon Free, using a direct connection with pooling disabled. Local file storage and USB development remain available. Deployment, live database/TLS validation, final hosted APK creation and device acceptance await connected Render/Neon accounts and Windows execution. See the [hosted demo release guide](HOSTED_DEMO.md). The sections below retain the earlier feature snapshot; its statements that PostgreSQL is absent no longer apply to payment-attempt storage. Budget/profile synchronization and real authentication remain separate future work.
+
 ## 1. Current position
 
 Hima's demo includes onboarding, schedule-based budgeting, dashboard and insights screens, AI advice, native NFC merchant recognition, and payment authorization. The Express backend and mobile payment plumbing for Paiflow have been implemented. Integration is still in progress: Profile uses the old wallet interface, the new wallet sheets are not connected there, XLM-aware AI answers are unfinished, and a real Paiflow checkout-to-receipt run still needs evidence.
