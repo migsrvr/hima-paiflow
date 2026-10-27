@@ -72,6 +72,17 @@ const environmentSchema = z.object({
   REWARD_AMOUNT_XLM: z.string().trim().refine((v) => (decimalToStroops(v) ?? 0n) > 0n).default('5'),
   REWARD_ALLOW_OPEN_PERIOD: flag,
   REWARD_TZ_OFFSET_MINUTES: z.coerce.number().int().min(-720).max(840).default(480),
+
+  // Public demo limits; 0 turns one off. Behind a proxy (Render), TRUST_PROXY makes them per client IP.
+  TRUST_PROXY: z.string().trim().toLowerCase().default(''),
+  RATE_SIGNIN_PER_IP_HOUR: z.coerce.number().int().min(0).default(10),
+  RATE_AI_PER_USER_HOUR: z.coerce.number().int().min(0).default(20),
+  RATE_AI_PER_IP_HOUR: z.coerce.number().int().min(0).default(40),
+  RATE_PAYMENTS_PER_USER_DAY: z.coerce.number().int().min(0).default(5),
+  RATE_PAYMENTS_PER_IP_DAY: z.coerce.number().int().min(0).default(10),
+  RATE_PAYMENTS_PER_DAY: z.coerce.number().int().min(0).default(100),
+  // Refill the testnet paying wallet with Friendbot XLM when it drops below this; 0 turns it off.
+  DEMO_TOPUP_BELOW_XLM: z.string().trim().refine((v) => decimalToStroops(v) !== undefined).default('100'),
 });
 
 /** "merchant:GA…,savings:GB…" -> { merchant: 'GA…', savings: 'GB…' }. Throws (field name only) on anything else. */
@@ -164,6 +175,17 @@ export function loadConfig() {
       rateCentavos: parseCentavos(env.PHP_PER_INPUT_UNIT) as number,
       maxPaymentCentavos: env.PAYMENT_MAX_PHP * 100,
     },
+    // Render sits one proxy in front of the app; without TRUST_PROXY every visitor shares one IP.
+    trustProxy: env.TRUST_PROXY === '' ? (env.RENDER ? 1 : false) : /^\d+$/.test(env.TRUST_PROXY) ? Number(env.TRUST_PROXY) : env.TRUST_PROXY === 'true',
+    limits: {
+      signInPerIpHour: env.RATE_SIGNIN_PER_IP_HOUR,
+      aiPerUserHour: env.RATE_AI_PER_USER_HOUR,
+      aiPerIpHour: env.RATE_AI_PER_IP_HOUR,
+      paymentsPerUserDay: env.RATE_PAYMENTS_PER_USER_DAY,
+      paymentsPerIpDay: env.RATE_PAYMENTS_PER_IP_DAY,
+      paymentsPerDay: env.RATE_PAYMENTS_PER_DAY,
+    },
+    topUpBelowStroops: decimalToStroops(env.DEMO_TOPUP_BELOW_XLM) as bigint,
     allowance: { devFunding: env.ALLOWANCE_DEV_FUNDING },
     reward: {
       amountStroops: decimalToStroops(env.REWARD_AMOUNT_XLM) as bigint,

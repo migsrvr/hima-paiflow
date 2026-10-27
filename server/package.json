@@ -17,6 +17,7 @@
     "paiflow:check": "tsx scripts/paiflow-check.ts",
     "paiflow:smoke": "tsx scripts/paiflow-smoke.ts",
     "allowance:smoke": "tsx scripts/allowance-smoke.ts",
+    "wallet:topup": "tsx scripts/wallet-topup.ts",
     "db:migrate": "node dist/db/migrate.js",
     "db:import": "node dist/db/import.js"
   },

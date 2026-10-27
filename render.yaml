@@ -16,6 +16,24 @@ services:
         value: production
       - key: HOST
         value: 0.0.0.0
+      # Public demo limits (0 turns one off) and the testnet wallet top-up threshold.
+      - key: RATE_PAYMENTS_PER_USER_DAY
+        value: '5'
+      - key: RATE_PAYMENTS_PER_IP_DAY
+        value: '10'
+      - key: RATE_PAYMENTS_PER_DAY
+        value: '100'
+      - key: RATE_AI_PER_USER_HOUR
+        value: '20'
+      - key: RATE_AI_PER_IP_HOUR
+        value: '40'
+      - key: RATE_SIGNIN_PER_IP_HOUR
+        value: '10'
+      - key: DEMO_TOPUP_BELOW_XLM
+        value: '100'
+      - key: CORS_ORIGINS
+        # The web demo's origin, e.g. https://hima-demo.vercel.app (comma-separated for several).
+        sync: false
       - key: STORAGE_BACKEND
         value: postgres
       - key: DATABASE_URL

@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import { userIdOf } from '../middleware/auth.js';
 import type { CheckoutService } from '../services/checkoutService.js';
@@ -22,7 +22,10 @@ function json(req: Request, res: Response): boolean {
 }
 
 /** Flow 1. The client never chooses an address: the merchant maps to the checkout deployment. */
-export function checkoutRoutes(checkout: CheckoutService): Router {
+export function checkoutRoutes(
+  checkout: CheckoutService,
+  hooks: { beforePay?: RequestHandler; afterPay?: () => void } = {},
+): Router {
   const router = Router();
 
   // Prices the payment and its 90/10 split; nothing is prepared or signed until it is paid.
@@ -37,14 +40,17 @@ export function checkoutRoutes(checkout: CheckoutService): Router {
   });
 
   // After the student authorizes on the phone: `{ quoteId }`, or a full request to quote and pay at once.
-  router.post('/payments', (req, res, next) => {
+  router.post('/payments', hooks.beforePay ?? ((_req, _res, next) => next()), (req, res, next) => {
     if (!json(req, res)) return;
     const input = paySchema.safeParse(req.body);
     if (!input.success) {
       res.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Provide a quoteId, or paymentId, merchantId, amount and reference.' } });
       return;
     }
-    checkout.pay(userIdOf(res), input.data).then((view) => res.json(view)).catch(next);
+    checkout.pay(userIdOf(res), input.data).then((view) => {
+      res.json(view);
+      hooks.afterPay?.();
+    }).catch(next);
   });
 
   return router;

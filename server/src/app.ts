@@ -2,6 +2,7 @@ import cors from 'cors';
 import express, { type ErrorRequestHandler } from 'express';
 import type { PaiflowRegistry } from './integrations/paiflow/registry.js';
 import { requireSession } from './middleware/auth.js';
+import { limitPayments, limitRequests, WINDOWS, WindowCounter, type RateLimits } from './middleware/rateLimit.js';
 import { aiRoutes } from './routes/ai.js';
 import { authRoutes } from './routes/auth.js';
 import { checkoutRoutes } from './routes/checkout.js';
@@ -31,13 +32,22 @@ export interface AppServices {
 
 interface AppOptions extends AppServices {
   corsOrigins?: string[];
+  /** Public-demo limits on sign-in, AI and payments. Omitted: no limits (tests, local tools). */
+  limits?: RateLimits;
+  /** Express `trust proxy`, so limits count the client's IP behind Render's proxy. */
+  trustProxy?: boolean | number;
+  /** Refills the testnet paying wallet after payments when it runs low. */
+  topUp?: { maybeTopUp(): Promise<unknown>; balance(): Promise<bigint | null> };
   /** Request and diagnostic log (default console.log). Tests pass a no-op. */
   log?: (message: string) => void;
 }
 
-export function createApp({ corsOrigins = [], log = console.log, ...s }: AppOptions) {
+export function createApp({ corsOrigins = [], log = console.log, limits, trustProxy = false, topUp, ...s }: AppOptions) {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', trustProxy);
+  const counter = new WindowCounter();
+  const pass: express.RequestHandler = (_req, _res, next) => next();
   // One line per request: method, path (no query string), status, time and browser origin. Never bodies.
   app.use((req, res, next) => {
     const started = Date.now();
@@ -83,16 +93,33 @@ export function createApp({ corsOrigins = [], log = console.log, ...s }: AppOpti
     });
   });
 
+  // Public: what the demo allows, and whether the shared testnet wallet can pay. No addresses or secrets.
+  app.get('/api/demo/status', (_req, res, next) => {
+    (topUp ? topUp.balance() : Promise.resolve(null)).then((stroops) => res.json({
+      limits: limits ?? null,
+      wallet: { xlm: stroops === null ? null : Number(stroops / 10_000_000n) },
+    })).catch(next);
+  });
+
   // Public: sign-in, deployment readiness (no secrets), merchant tag lookup.
-  app.use('/api/auth', authRoutes(s.sessions));
+  app.use('/api/auth', limits
+    ? limitRequests(counter, 'signin', { perIp: limits.signInPerIpHour, windowMs: WINDOWS.HOUR_MS }, 'Too many sign-ins from this network. Try again later.')
+    : pass, authRoutes(s.sessions));
   app.use('/api/paiflow', paiflowRoutes(s.registry, s.catalog));
   app.use('/api/merchants', merchantRoutes());
 
   // Everything with user data needs a session; records belonging to someone else are "not found".
   const signedIn = requireSession(s.sessions);
-  app.use('/api/ai', signedIn, aiRoutes(s.ai));
+  app.use('/api/ai', signedIn, limits
+    ? limitRequests(counter, 'ai', { perIp: limits.aiPerIpHour, perUser: limits.aiPerUserHour, windowMs: WINDOWS.HOUR_MS },
+      "You've asked Hima a lot this hour. Try again later.")
+    : pass, aiRoutes(s.ai));
   app.use('/api/wallet', signedIn, walletRoutes(s.wallet));
-  app.use('/api/checkout', signedIn, checkoutRoutes(s.checkout));
+  app.use('/api/checkout', signedIn, checkoutRoutes(s.checkout, {
+    beforePay: limits ? limitPayments(s.attempts, counter, limits) : pass,
+    // After each payment, refill the shared testnet wallet if it is running low (at most hourly).
+    afterPay: () => { void topUp?.maybeTopUp(); },
+  }));
   app.use('/api/payments', signedIn, paymentRoutes(s.attempts, s.executor, s.checkout));
 
   app.use((_req, res) => {

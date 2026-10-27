@@ -7,7 +7,7 @@ async function start() {
   const services = compose(config);
   try { await services.attempts.ready(); }
   catch (error) { await services.attempts.close().catch(() => {}); throw error; }
-  const server = createApp({ ...services, corsOrigins: config.corsOrigins }).listen(config.port, config.host, () => {
+  const server = createApp({ ...services, corsOrigins: config.corsOrigins, limits: config.limits, trustProxy: config.trustProxy }).listen(config.port, config.host, () => {
     console.log(`Hima server listening on http://${config.host}:${config.port}`);
     console.log(`AI: ${services.ai.configured ? `Groq, model ${config.model}` : 'off (GROQ_API_KEY is unset; AI requests return 503)'}`);
     console.log(config.corsOrigins.length

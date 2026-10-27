@@ -13,6 +13,7 @@ import { HorizonClient } from './services/horizonClient.js';
 import { PaymentVerifier } from './services/paymentVerification.js';
 import { SessionService } from './services/sessionService.js';
 import { WalletService } from './services/walletService.js';
+import { horizonMerge, WalletTopUp } from './services/walletTopUp.js';
 
 function keypair(secret: string, name: string): Keypair | undefined {
   if (!secret) return undefined;
@@ -24,6 +25,8 @@ export interface Composed extends AppServices {
   student?: Keypair;
   sponsor?: Keypair;
   horizon: HorizonClient;
+  /** Refills the testnet paying wallet for the public demo; undefined without a student wallet. */
+  topUp?: WalletTopUp;
   warnings: string[];
 }
 
@@ -79,6 +82,9 @@ export function compose(config: ServerConfig, options: { log?: (message: string)
     student,
     sponsor,
     horizon,
+    topUp: student
+      ? new WalletTopUp({ horizon, wallet: student.publicKey(), belowStroops: config.topUpBelowStroops, merge: horizonMerge(config.stellar.horizonUrl), log })
+      : undefined,
     warnings,
   };
 }
