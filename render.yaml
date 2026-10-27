@@ -3,7 +3,7 @@ services:
     name: hima-demo-api
     runtime: node
     plan: free
-    region: singapore
+    region: ohio # next to Neon us-east-2
     rootDir: server
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run db:migrate && npm start

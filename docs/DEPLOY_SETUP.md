@@ -60,6 +60,26 @@ The Blueprint sets these values itself:
 | `PAIFLOW_ALLOWANCE_*`, `PAIFLOW_REWARD_*` | Paused flows | Leave empty |
 | `CORS_ORIGINS` | The Vercel web app URL, for example `https://hima-demo.vercel.app` | Not secret. Set it after step 5. |
 
+## Status (2026-10-27)
+- **Render:** `hima-demo-api` (`srv-dbg5k9afngtc738orkfg`) is at https://hima-demo-api.onrender.com.
+  - It lives in project Hima-Paiflow, Production environment, region Ohio (next to Neon us-east-2).
+  - It was created with the Render CLI rather than the Blueprint, using the same settings as `render.yaml`. Its secrets were copied from `server/.env` without being printed, and it has a fresh `SESSION_SECRET`.
+  - Auto-deploy is off. Deploy with `render deploys create srv-dbg5k9afngtc738orkfg`.
+- **Vercel:** two projects.
+  - Web app: project `hima-demo`, at https://hima-demo.vercel.app.
+  - Showcase page: project `hima-showcase`, at https://hima-showcase.vercel.app.
+  - Redeploy the app:
+    ```
+    $env:EXPO_PUBLIC_API_URL='https://hima-demo-api.onrender.com'; npm.cmd run web:demo
+    cd dist-web; vercel link --yes --project hima-demo; vercel deploy --prod --yes
+    ```
+  - `CORS_ORIGINS` on Render is `https://hima-demo.vercel.app`, with no trailing `/` or `.`.
+- **Live check (2026-10-27):** passed except the AI.
+  - Passed: sign-up, onboarding, demo tap, PIN, and a real testnet payment confirmed in about 8 s with the canteen and auto-save rows. The 6th payment of the day returns 429.
+  - Failed: Groq rejects the AI key (401), so `GROQ_API_KEY` must be replaced locally and on Render.
+- **Keep-awake pinger:** daytime only, so Hima doesn't use up the workspace's shared 750 free hours. The workspace has 3 other free services.
+  - Use cron-job.org: `GET https://hima-demo-api.onrender.com/health` every 10 minutes, 08:00–24:00 Asia/Manila, about 500 hours a month.
+
 ## 4. Order of work
 
 | # | Step | Who |
